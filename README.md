@@ -1,6 +1,18 @@
 <h1 align="center">
-  <img src="https://github.com/OpenBMB/RepoAgent/assets/138990495/06bc2449-c82d-4b9e-8c83-27640e541451" width="50" alt="RepoAgent logo"/> <em>RepoAgent: An LLM-Powered Framework for Repository-level Code Documentation Generation.</em>
+  <img src="https://github.com/OpenBMB/RepoAgent/assets/138990495/06bc2449-c82d-4b9e-8c83-27640e541451" width="50" alt="RepoAgent logo"/> <em>RepoAgentKotlin: Repository Documentation for Python and Kotlin.</em>
 </h1>
+
+> **Fork of [OpenBMB/RepoAgent](https://github.com/OpenBMB/RepoAgent).**
+> This repository extends the original project with a Kotlin backend alongside
+> Python, shared Markdown generation, and optional Kotlin LSP reference analysis.
+> The original Git history, author credits and [Apache-2.0 license](LICENSE) are retained.
+>
+> Install this fork from a local checkout with `pip install -e '.[kotlin]'`.
+> The `repoagent` package on PyPI and the original project's demos below refer to
+> upstream RepoAgent.
+>
+> **Documentation:** [German architecture walkthrough](docs/ARCHITEKTUR_UND_ABLAUF_DE.md)
+> · [Kotlin backend setup](docs/KOTLIN_BACKEND.md).
 
 <p align="center">
   <img src="https://img.shields.io/pypi/dm/repoagent" alt="PyPI - Downloads"/>
@@ -10,9 +22,9 @@
   <a href="Pypi">
     <img src="https://img.shields.io/pypi/pyversions/repoagent" alt="PyPI - Python Version"/>
   </a>
-  <img alt="GitHub License" src="https://img.shields.io/github/license/LOGIC-10/RepoAgent">
-  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/LOGIC-10/RepoAgent?style=social">
-  <img alt="GitHub issues" src="https://img.shields.io/github/issues/LOGIC-10/RepoAgent">
+  <img alt="GitHub License" src="https://img.shields.io/github/license/BenMoeckel/RepoAgentKotlin">
+  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/BenMoeckel/RepoAgentKotlin?style=social">
+  <img alt="GitHub issues" src="https://img.shields.io/github/issues/BenMoeckel/RepoAgentKotlin">
   <a href="https://arxiv.org/abs/2402.16667v1">
     <img src="https://img.shields.io/badge/cs.CL-2402.16667-b31b1b?logo=arxiv&logoColor=red" alt="arXiv"/>
   </a>
@@ -82,8 +94,8 @@ If you're looking to contribute or set up a development environment:
     - **Clone the Repository**
   
     ```bash
-    git clone https://github.com/LOGIC-10/RepoAgent.git
-    cd RepoAgent
+    git clone https://github.com/BenMoeckel/RepoAgentKotlin.git
+    cd RepoAgentKotlin
     ```
 
 - **Setup with PDM**
@@ -113,6 +125,28 @@ $Env:OPENAI_API_KEY = "YOUR_API_KEY" # on Windows (PowerShell)
 ```
 
 ## Run RepoAgent
+
+### Python and Kotlin source backends
+
+This checkout supports Python (`.py`), Kotlin (`.kt`) and Kotlin scripts (`.kts`).
+Install the optional Kotlin parser from this checkout:
+
+```sh
+pip install -e '.[kotlin]'
+repoagent run --target-repo-path /path/to/kotlin-repo --source-language kotlin --language German
+```
+
+`--source-language auto` (default) accepts mixed Python/Kotlin repositories;
+`--source-language python` retains Python-only discovery. `--language` selects
+the documentation language. Both backends use the same Markdown output and
+checkpoint pipeline.
+
+For Kotlin caller/callee relationships, install a Kotlin language server and add
+`--kotlin-lsp-command 'kotlin-lsp --stdio'`. Without LSP, Kotlin documentation is
+generated from source declarations without semantic reference context.
+See [Kotlin backend setup, output format and limitations](docs/KOTLIN_BACKEND.md).
+For a German walkthrough with architecture diagrams and a Kotlin example, see
+[RepoAgent verstehen: Architektur und Ablauf](docs/ARCHITEKTUR_UND_ABLAUF_DE.md).
 
 Enter the root directory of RepoAgent and try the following command in the terminal:
 ```sh
@@ -166,11 +200,11 @@ repos:
     hooks:
     - id: repo-agent
       name: RepoAgent
-      entry: repoagent
+      entry: repoagent run
       language: system
       pass_filenames: false # prevent from passing filenames to the hook
-      # You can specify the file types that trigger the hook, but currently only python is supported.
-      types: [python]
+      # Match either backend; add --source-language kotlin to entry for Kotlin only.
+      files: '\.(py|kt|kts)$'
 ```
 
 For specific configuration methods of hooks, please refer to [pre-commit](https://pre-commit.com/#plugins).
@@ -210,7 +244,8 @@ repoagent chat-with-repo
 ## ✅ Future Work
 
 - [ ] Generate README.md automatically combining with the global documentation
-- [ ] **Multi-programming-language support** Support more programming languages like Java, C or C++, etc.
+- [x] Python and Kotlin source backends (Kotlin semantic references via optional LSP)
+- [ ] Additional programming languages such as Java, C and C++
 - [x] Local model support like Llama, chatGLM, Qwen, GLM4, etc.
 
 ## 🥰 Featured Cases

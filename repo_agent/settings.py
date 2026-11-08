@@ -1,5 +1,6 @@
 from enum import StrEnum
-from typing import Optional
+from pathlib import Path
+from typing import Literal, Optional
 
 from iso639 import Language, LanguageNotFoundError
 from pydantic import (
@@ -12,7 +13,6 @@ from pydantic import (
     field_validator,
 )
 from pydantic_settings import BaseSettings
-from pathlib import Path
 
 
 class LogLevel(StrEnum):
@@ -29,6 +29,9 @@ class ProjectSettings(BaseSettings):
     markdown_docs_name: str = "markdown_docs"
     ignore_list: list[str] = []
     language: str = "English"
+    source_language: Literal["auto", "python", "kotlin"] = "auto"
+    kotlin_lsp_command: str = ""
+    kotlin_lsp_timeout: PositiveInt = 120
     max_thread_count: PositiveInt = 4
     log_level: LogLevel = LogLevel.INFO
 
@@ -98,6 +101,9 @@ class SettingsManager:
         temperature: float,
         request_timeout: int,
         openai_base_url: str,
+        source_language: str = "auto",
+        kotlin_lsp_command: str = "",
+        kotlin_lsp_timeout: int = 120,
     ):
         project_settings = ProjectSettings(
             target_repo=target_repo,
@@ -107,6 +113,9 @@ class SettingsManager:
             language=language,
             max_thread_count=max_thread_count,
             log_level=LogLevel(log_level),
+            source_language=source_language,
+            kotlin_lsp_command=kotlin_lsp_command,
+            kotlin_lsp_timeout=kotlin_lsp_timeout,
         )
 
         chat_completion_settings = ChatCompletionSettings(

@@ -9,6 +9,7 @@ doc_generation_instruction = (
     "The path of the document you need to generate in this project is {file_path}.\n"
     'Now you need to generate a document for a {code_type_tell}, whose name is "{code_name}".\n\n'
     "The content of the code is as follows:\n"
+    "Source language: {source_language}. For Kotlin, account for nullability, receivers, suspend functions, properties and object declarations when present.\n"
     "{code_content}\n\n"
     "{reference_letter}\n"
     "{referencer_content}\n\n"

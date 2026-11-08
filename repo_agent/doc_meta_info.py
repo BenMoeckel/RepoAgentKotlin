@@ -5,16 +5,18 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from enum import Enum, auto, unique
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-import jedi
 from colorama import Fore, Style
 from prettytable import PrettyTable
 from tqdm import tqdm
 
+from repo_agent.backends import get_backend
+from repo_agent.backends.lsp import KotlinLsp
 from repo_agent.file_handler import FileHandler
 from repo_agent.log import logger
 from repo_agent.multi_task_dispatch import Task, TaskManager
@@ -40,9 +42,15 @@ class DocItemType(Enum):
     _function = auto()  # 文件内的常规function
     _sub_function = auto()  # function内的定义的subfunction
     _global_var = auto()
+    _property = auto()
+    _type_alias = auto()
 
     def to_str(self):
-        if self == DocItemType._class:
+        if self == DocItemType._property:
+            return "PropertyDef"
+        elif self == DocItemType._type_alias:
+            return "TypeAliasDef"
+        elif self == DocItemType._class:
             return "ClassDef"
         elif self == DocItemType._function:
             return "FunctionDef"
@@ -196,8 +204,12 @@ class DocItem:
             child.parse_tree_path(self.tree_path)
 
     def get_file_name(self):
-        full_name = self.get_full_name()
-        return full_name.split(".py")[0] + ".py"
+        node = self
+        while node is not None and node.item_type != DocItemType._file:
+            node = node.father
+        if node is None:
+            raise ValueError("Item does not belong to a source file")
+        return node.get_full_name()
 
     def get_full_name(self, strict=False):
         """获取从下到上所有的obj名字
@@ -210,13 +222,13 @@ class DocItem:
         name_list = []
         now = self
         while now != None:
-            self_name = now.obj_name
-            if strict:
-                for name, item in self.father.children.items():
-                    if item == now:
+            self_name = now.content.get("symbol_key", now.obj_name)
+            if strict and now.father is not None:
+                for name, item in now.father.children.items():
+                    if item is now:
                         self_name = name
                         break
-                if self_name != now.obj_name:
+                if self_name != now.obj_name and "symbol_key" not in now.content:
                     self_name = self_name + "(name_duplicate_version)"
             name_list = [self_name] + name_list
             now = now.father
@@ -294,27 +306,31 @@ class DocItem:
 
 
 def find_all_referencer(
-    repo_path, variable_name, file_path, line_number, column_number, in_file_only=False
+    repo_path,
+    variable_name,
+    file_path,
+    line_number,
+    column_number,
+    in_file_only=False,
+    symbol=None,
+    kotlin_lsp=None,
 ):
     """复制过来的之前的实现"""
-    script = jedi.Script(path=os.path.join(repo_path, file_path))
     try:
-        if in_file_only:
-            references = script.get_references(
-                line=line_number, column=column_number, scope="file"
-            )
-        else:
-            references = script.get_references(line=line_number, column=column_number)
-        # 过滤出变量名为 variable_name 的引用，并返回它们的位置
-        variable_references = [ref for ref in references if ref.name == variable_name]
-        # if variable_name == "need_to_generate":
-        #     import pdb; pdb.set_trace()
-        return [
-            (os.path.relpath(ref.module_path, repo_path), ref.line, ref.column)
-            for ref in variable_references
-            if not (ref.line == line_number and ref.column == column_number)
-        ]
+        return get_backend(file_path, kotlin_lsp).references(
+            repo_path,
+            file_path,
+            symbol
+            or {
+                "name": variable_name,
+                "code_start_line": line_number,
+                "name_column": column_number,
+            },
+            in_file_only,
+        )
     except Exception as e:
+        if file_path.endswith((".kt", ".kts")):
+            raise
         # 打印错误信息和相关参数
         logger.error(f"Error occurred: {e}")
         logger.error(
@@ -476,7 +492,9 @@ class MetaInfo:
         walk_tree(self.target_repo_hierarchical_tree)
         return files
 
-    def find_obj_with_lineno(self, file_node: DocItem, start_line_num) -> DocItem:
+    def find_obj_with_lineno(
+        self, file_node: DocItem, start_line_num, column=None
+    ) -> DocItem:
         """每个DocItem._file，对于所有的行，建立他们对应的对象是谁
         一个行属于这个obj的范围，并且没法属于他的儿子的范围了"""
         now_node = file_node
@@ -490,6 +508,17 @@ class MetaInfo:
                     child.content["code_start_line"] <= start_line_num
                     and child.content["code_end_line"] >= start_line_num
                 ):
+                    if column is not None and "code_start_column" in child.content:
+                        if (start_line_num, column) < (
+                            child.code_start_line,
+                            child.content["code_start_column"],
+                        ):
+                            continue
+                        if (start_line_num, column) >= (
+                            child.code_end_line,
+                            child.content["code_end_column"],
+                        ):
+                            continue
                     now_node = child
                     find_qualify_child = True
                     break
@@ -498,8 +527,36 @@ class MetaInfo:
         return now_node
 
     def parse_reference(self):
+        setting = SettingsManager.get_setting().project
+        kotlin_files = [
+            f
+            for f in self.get_all_files()
+            if f.get_file_name().endswith((".kt", ".kts"))
+        ]
+        session = (
+            KotlinLsp(
+                setting.kotlin_lsp_command, self.repo_path, setting.kotlin_lsp_timeout
+            )
+            if kotlin_files and setting.kotlin_lsp_command
+            else nullcontext()
+        )
+        if kotlin_files and not setting.kotlin_lsp_command:
+            logger.warning(
+                "Kotlin LSP not configured: generating Kotlin docs without semantic references"
+            )
+        with session as kotlin_lsp:
+            if kotlin_lsp:
+                for file in kotlin_files:
+                    kotlin_lsp.open_file(file.get_file_name())
+            self._parse_reference(kotlin_lsp)
+
+    def _parse_reference(self, kotlin_lsp=None):
         """双向提取所有引用关系"""
         file_nodes = self.get_all_files()
+        for item in self.target_repo_hierarchical_tree.get_travel_list():
+            item.reference_who.clear()
+            item.who_reference_me.clear()
+            item.special_reference_type.clear()
 
         white_list_file_names, white_list_obj_names = (
             [],
@@ -542,6 +599,8 @@ class MetaInfo:
                     line_number=now_obj.content["code_start_line"],
                     column_number=now_obj.content["name_column"],
                     in_file_only=in_file_only,
+                    symbol=now_obj.content,
+                    kotlin_lsp=kotlin_lsp,
                 )
                 for referencer_pos in reference_list:  # 对于每个引用
                     referencer_file_ral_path = referencer_pos[0]
@@ -581,9 +640,9 @@ class MetaInfo:
                         )
                         continue
                     referencer_node = self.find_obj_with_lineno(
-                        referencer_file_item, referencer_pos[1]
+                        referencer_file_item, referencer_pos[1], referencer_pos[2]
                     )
-                    if referencer_node.obj_name == now_obj.obj_name:
+                    if referencer_node is now_obj:
                         logger.info(
                             f"Jedi find {now_obj.get_full_name()} with name_duplicate_reference, skipped"
                         )
@@ -836,7 +895,8 @@ class MetaInfo:
                 nonlocal file_hierarchy_content, flash_reference_relation
                 temp_json_obj = now_obj.content
                 temp_json_obj["name"] = now_obj.obj_name
-                temp_json_obj["type"] = now_obj.item_type.to_str()
+                if temp_json_obj.get("language") != "kotlin":
+                    temp_json_obj["type"] = now_obj.item_type.to_str()
                 temp_json_obj["md_content"] = now_obj.md_content
                 temp_json_obj["item_status"] = now_obj.item_status.name
 
@@ -950,10 +1010,16 @@ class MetaInfo:
                     obj_doc_item.who_reference_me_name_list = value["who_reference_me"]
                 obj_item_list.append(obj_doc_item)
 
+            symbols_by_id = {
+                item.content["symbol_id"]: item
+                for item in obj_item_list
+                if "symbol_id" in item.content
+            }
+
             # 接下里寻找可能的父亲
             for item in obj_item_list:
                 potential_father = None
-                for other_item in obj_item_list:
+                for other_item in [] if "parent_id" in item.content else obj_item_list:
 
                     def code_contain(item, other_item) -> bool:
                         if (
@@ -978,10 +1044,12 @@ class MetaInfo:
                         ):
                             potential_father = other_item
 
+                if item.content.get("parent_id") is not None:
+                    potential_father = symbols_by_id[item.content["parent_id"]]
                 if potential_father == None:
                     potential_father = file_item
                 item.father = potential_father
-                child_name = item.obj_name
+                child_name = item.content.get("symbol_key", item.obj_name)
                 if child_name in potential_father.children.keys():
                     # 如果存在同层次的重名问题，就重命名成 xxx_i的形式
                     now_name_id = 0
@@ -1000,7 +1068,10 @@ class MetaInfo:
                 if now_item.item_type != DocItemType._file:
                     if now_item.content["type"] == "ClassDef":
                         now_item.item_type = DocItemType._class
-                    elif now_item.content["type"] == "FunctionDef":
+                    elif now_item.content["type"] in {
+                        "FunctionDef",
+                        "AsyncFunctionDef",
+                    }:
                         now_item.item_type = DocItemType._function
                         if now_item.father.item_type == DocItemType._class:
                             now_item.item_type = DocItemType._class_function
@@ -1009,6 +1080,10 @@ class MetaInfo:
                             DocItemType._sub_function,
                         ]:
                             now_item.item_type = DocItemType._sub_function
+                    elif now_item.content["type"] == "PropertyDef":
+                        now_item.item_type = DocItemType._property
+                    elif now_item.content["type"] == "TypeAliasDef":
+                        now_item.item_type = DocItemType._type_alias
                 for _, child in now_item.children.items():
                     change_items(child)
 

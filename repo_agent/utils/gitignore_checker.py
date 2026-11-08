@@ -1,6 +1,8 @@
 import fnmatch
 import os
 
+from repo_agent.backends import is_source_file
+
 
 class GitignoreChecker:
     def __init__(self, directory: str, gitignore_path: str):
@@ -110,7 +112,8 @@ class GitignoreChecker:
             dirs[:] = [
                 d
                 for d in dirs
-                if not self._is_ignored(d, self.folder_patterns, is_dir=True)
+                if d not in {".git", ".gradle", ".kotlin", "build", ".venv"}
+                and not self._is_ignored(d, self.folder_patterns, is_dir=True)
             ]
 
             for file in files:
@@ -118,7 +121,7 @@ class GitignoreChecker:
                 relative_path = os.path.relpath(file_path, self.directory)
                 if not self._is_ignored(
                     file, self.file_patterns
-                ) and file_path.endswith(".py"):
+                ) and is_source_file(file_path):
                     not_ignored_files.append(relative_path)
 
         return not_ignored_files

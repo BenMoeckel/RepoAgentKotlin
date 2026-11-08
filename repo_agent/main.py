@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from repo_agent.doc_meta_info import DocItem, MetaInfo
 from repo_agent.log import logger, set_logger_level_from_config
-from repo_agent.runner import Runner, delete_fake_files
-from repo_agent.settings import SettingsManager, LogLevel
+from repo_agent.runner import Runner
+from repo_agent.settings import LogLevel, SettingsManager
 from repo_agent.utils.meta_info_utils import delete_fake_files, make_fake_files
 
 try:
@@ -130,6 +130,21 @@ def handle_setting_error(e: ValidationError):
     type=click.Choice([level.value for level in LogLevel], case_sensitive=False),
 )
 @click.option(
+    "--source-language",
+    type=click.Choice(["auto", "python", "kotlin"]),
+    default="auto",
+    show_default=True,
+    help="Source-code backend; independent of the documentation language.",
+)
+@click.option(
+    "--kotlin-lsp-command",
+    default="",
+    help="Optional stdio Kotlin language-server command for semantic references.",
+)
+@click.option(
+    "--kotlin-lsp-timeout", default=120, type=click.IntRange(min=1), show_default=True
+)
+@click.option(
     "--print-hierarchy",
     "-pr",
     is_flag=True,
@@ -150,6 +165,9 @@ def run(
     max_thread_count,
     log_level,
     print_hierarchy,
+    source_language,
+    kotlin_lsp_command,
+    kotlin_lsp_timeout,
 ):
     """Run the program with the specified parameters."""
     try:
@@ -166,6 +184,9 @@ def run(
             request_timeout=request_timeout,
             openai_base_url=base_url,
             max_thread_count=max_thread_count,
+            source_language=source_language,
+            kotlin_lsp_command=kotlin_lsp_command,
+            kotlin_lsp_timeout=kotlin_lsp_timeout,
         )
         set_logger_level_from_config(log_level=log_level)
     except ValidationError as e:
@@ -173,8 +194,11 @@ def run(
         return
 
     # 如果设置成功，则运行任务
-    runner = Runner()
-    runner.run()
+    try:
+        runner = Runner()
+        runner.run()
+    finally:
+        delete_fake_files()
     logger.success("Documentation task completed.")
     if print_hierarchy:
         runner.meta_info.target_repo_hierarchical_tree.print_recursive()
@@ -204,9 +228,11 @@ def diff():
         raise click.Abort()
 
     file_path_reflections, jump_files = make_fake_files()
-    new_meta_info = MetaInfo.init_meta_info(file_path_reflections, jump_files)
-    new_meta_info.load_doc_from_older_meta(runner.meta_info)
-    delete_fake_files()
+    try:
+        new_meta_info = MetaInfo.init_meta_info(file_path_reflections, jump_files)
+        new_meta_info.load_doc_from_older_meta(runner.meta_info)
+    finally:
+        delete_fake_files()
 
     DocItem.check_has_task(
         new_meta_info.target_repo_hierarchical_tree,

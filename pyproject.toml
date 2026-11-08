@@ -18,6 +18,7 @@ dependencies = [
     "python-iso639>=2024.10.22",
     "colorama>=0.4.6",
     "llama-index-llms-openai-like>=0.3.3",
+    "tqdm>=4.66",
 ]
 name = "repoagent"
 version = "0.2.0"
@@ -31,12 +32,17 @@ classifiers = [
 ]
 
 [project.urls]
-repository = "https://github.com/LOGIC-10/RepoAgent"
+repository = "https://github.com/BenMoeckel/RepoAgentKotlin"
+upstream = "https://github.com/OpenBMB/RepoAgent"
 
 [project.scripts]
 repoagent = "repo_agent.main:cli"
 
 [project.optional-dependencies]
+kotlin = [
+    "tree-sitter>=0.25.2,<0.26",
+    "tree-sitter-language-pack==0.13.0",
+]
 chat_with_repo = [
     "markdown>=3.7",
     "llama-index-embeddings-openai>=0.2.5",

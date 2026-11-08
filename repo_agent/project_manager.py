@@ -1,12 +1,11 @@
 import os
 
-import jedi
+from repo_agent.backends import is_source_file
 
 
 class ProjectManager:
     def __init__(self, repo_path, project_hierarchy):
         self.repo_path = repo_path
-        self.project = jedi.Project(self.repo_path)
         self.project_hierarchy = os.path.join(
             self.repo_path, project_hierarchy, "project_hierarchy.json"
         )
@@ -28,7 +27,7 @@ class ProjectManager:
                 path = os.path.join(root, name)
                 if os.path.isdir(path):
                     walk_dir(path, new_prefix)
-                elif os.path.isfile(path) and name.endswith(".py"):
+                elif os.path.isfile(path) and is_source_file(name):
                     structure.append(new_prefix + name)
 
         structure = []

@@ -12,6 +12,7 @@ class ChatEngine:
     """
 
     def __init__(self, project_manager):
+        self.project_manager = project_manager
         setting = SettingsManager.get_setting()
 
         self.llm = OpenAILike(
@@ -45,7 +46,7 @@ class ChatEngine:
             ]
             for reference_item in doc_item.reference_who:
                 instance_prompt = (
-                    f"""obj: {reference_item.get_full_name()}\nDocument: \n{reference_item.md_content[-1] if len(reference_item.md_content) > 0 else 'None'}\nRaw code:```\n{reference_item.content['code_content'] if 'code_content' in reference_item.content.keys() else ''}\n```"""
+                    f"""obj: {reference_item.get_full_name()}\nDocument: \n{reference_item.md_content[-1] if len(reference_item.md_content) > 0 else "None"}\nRaw code:```\n{reference_item.content["code_content"] if "code_content" in reference_item.content.keys() else ""}\n```"""
                     + "=" * 10
                 )
                 prompt.append(instance_prompt)
@@ -59,7 +60,7 @@ class ChatEngine:
             ]
             for referencer_item in doc_item.who_reference_me:
                 instance_prompt = (
-                    f"""obj: {referencer_item.get_full_name()}\nDocument: \n{referencer_item.md_content[-1] if len(referencer_item.md_content) > 0 else 'None'}\nRaw code:```\n{referencer_item.content['code_content'] if 'code_content' in referencer_item.content.keys() else 'None'}\n```"""
+                    f"""obj: {referencer_item.get_full_name()}\nDocument: \n{referencer_item.md_content[-1] if len(referencer_item.md_content) > 0 else "None"}\nRaw code:```\n{referencer_item.content["code_content"] if "code_content" in referencer_item.content.keys() else "None"}\n```"""
                     + "=" * 10
                 )
                 prompt.append(instance_prompt)
@@ -75,7 +76,9 @@ class ChatEngine:
             else:
                 return ""
 
-        code_type_tell = "Class" if code_type == "ClassDef" else "Function"
+        code_type_tell = code_info.get(
+            "kind", "Class" if code_type == "ClassDef" else "Function"
+        )
         parameters_or_attribute = (
             "attributes" if code_type == "ClassDef" else "parameters"
         )
@@ -102,6 +105,11 @@ class ChatEngine:
             combine_ref_situation=combine_ref_situation,
             file_path=file_path,
             project_structure_prefix=project_structure_prefix,
+            project_structure=self.project_manager.build_path_tree(
+                [item.get_full_name() for item in doc_item.who_reference_me],
+                [item.get_full_name() for item in doc_item.reference_who],
+                doc_item.get_full_name(),
+            ),
             code_type_tell=code_type_tell,
             code_name=code_name,
             code_content=code_content,
@@ -111,6 +119,7 @@ class ChatEngine:
             referencer_content=referencer_content,
             parameters_or_attribute=parameters_or_attribute,
             language=setting.project.language,
+            source_language=code_info.get("language", "python"),
         )
 
     def generate_doc(self, doc_item: DocItem):

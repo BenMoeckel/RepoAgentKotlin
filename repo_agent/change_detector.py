@@ -5,6 +5,7 @@ import subprocess
 import git
 from colorama import Fore, Style
 
+from repo_agent.backends import is_source_file
 from repo_agent.file_handler import FileHandler
 from repo_agent.settings import SettingsManager
 
@@ -48,7 +49,7 @@ class ChangeDetector:
         diffs = repo.index.diff("HEAD", R=True)
 
         for diff in diffs:
-            if diff.change_type in ["A", "M"] and diff.a_path.endswith(".py"):
+            if diff.change_type in ["A", "M"] and is_source_file(diff.a_path):
                 is_new_file = diff.change_type == "A"
                 staged_files[diff.a_path] = is_new_file
 
@@ -67,8 +68,7 @@ class ChangeDetector:
 
         if is_new_file:
             # For new files, first add them to the staging area.
-            add_command = f"git -C {repo.working_dir} add {file_path}"
-            subprocess.run(add_command, shell=True, check=True)
+            repo.git.add("--", file_path)
 
             # Get the diff from the staging area.
             diffs = repo.git.diff("--staged", file_path).splitlines()
@@ -186,7 +186,9 @@ class ChangeDetector:
         # 处理untrack_files中的内容
         for untracked_file in untracked_files:
             # 连接repo_path和untracked_file以获取完整的绝对路径
-            if untracked_file.startswith(setting.project.markdown_docs_name):
+            if untracked_file.startswith(
+                setting.project.markdown_docs_name + "/"
+            ) or untracked_file.startswith(setting.project.hierarchy_name + "/"):
                 to_be_staged_files.append(untracked_file)
             continue
             print(f"rel_untracked_file:{rel_untracked_file}")
@@ -263,8 +265,7 @@ class ChangeDetector:
         """
         unstaged_files_meeting_conditions = self.get_to_be_staged_files()
         for file_path in unstaged_files_meeting_conditions:
-            add_command = f"git -C {self.repo.working_dir} add {file_path}"
-            subprocess.run(add_command, shell=True, check=True)
+            self.repo.git.add("--", file_path)
         return unstaged_files_meeting_conditions
 
 

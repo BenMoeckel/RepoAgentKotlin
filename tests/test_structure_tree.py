@@ -32,7 +32,7 @@ def build_path_tree(who_reference_me, reference_who, doc_item_path):
     return tree_to_string(path_tree)
 
 
-if "__name__ == main":
+if __name__ == "__main__":
     who_reference_me = [
         "repo_agent/file_handler.py/FileHandler/__init__",
         "repo_agent/runner.py/need_to_generate"

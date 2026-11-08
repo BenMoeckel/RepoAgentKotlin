@@ -11,6 +11,7 @@ from pathlib import Path
 from colorama import Fore, Style
 from tqdm import tqdm
 
+from repo_agent.backends import is_source_file, markdown_path
 from repo_agent.change_detector import ChangeDetector
 from repo_agent.chat_engine import ChatEngine
 from repo_agent.doc_meta_info import DocItem, DocItemStatus, MetaInfo, need_to_generate
@@ -40,7 +41,13 @@ class Runner:
 
         if not self.absolute_project_hierarchy_path.exists():
             file_path_reflections, jump_files = make_fake_files()
-            self.meta_info = MetaInfo.init_meta_info(file_path_reflections, jump_files)
+            try:
+                self.meta_info = MetaInfo.init_meta_info(
+                    file_path_reflections, jump_files
+                )
+            except BaseException:
+                delete_fake_files()
+                raise
             self.meta_info.checkpoint(
                 target_dir_path=self.absolute_project_hierarchy_path
             )
@@ -68,7 +75,7 @@ class Runner:
 
         for root, dirs, files in os.walk(directory):
             for file in files:
-                if file.endswith(".py"):
+                if is_source_file(file):
                     python_files.append(os.path.join(root, file))
 
         return python_files
@@ -172,6 +179,7 @@ class Runner:
 
         # 遍历文件列表生成 markdown
         file_item_list = self.meta_info.get_all_files()
+        source_files = {item.get_file_name() for item in file_item_list}
         logger.debug(f"Found {len(file_item_list)} files to process.")
 
         for file_item in tqdm(file_item_list):
@@ -202,9 +210,9 @@ class Runner:
                 continue
 
             # 确定并创建文件路径
-            file_path = Path(
-                self.setting.project.markdown_docs_name
-            ) / file_item.get_file_name().replace(".py", ".md")
+            file_path = Path(self.setting.project.markdown_docs_name) / markdown_path(
+                file_item.get_file_name(), source_files
+            )
             abs_file_path = self.setting.project.target_repo / file_path
             logger.debug(f"Writing markdown to: {abs_file_path}")
 
@@ -232,10 +240,16 @@ class Runner:
 
     def to_markdown(self, item, now_level: int) -> str:
         """将文件内容转化为 markdown 格式的文本"""
+        name = item.content.get("signature", item.obj_name)
         markdown_content = (
-            "#" * now_level + f" {item.item_type.to_str()} {item.obj_name}"
+            "#" * now_level
+            + f" {item.content.get('kind', item.item_type.to_str())} {name}"
         )
-        if "params" in item.content.keys() and item.content["params"]:
+        if (
+            "params" in item.content.keys()
+            and item.content["params"]
+            and "(" not in name
+        ):
             markdown_content += f"({', '.join(item.content['params'])})"
         markdown_content += "\n"
         if item.md_content:
@@ -257,6 +271,13 @@ class Runner:
             print(f"An error occurred while trying to commit {str(e)}")
 
     def run(self):
+        """Run generation and always restore unstaged working-tree contents."""
+        try:
+            self._run()
+        finally:
+            delete_fake_files()
+
+    def _run(self):
         """
         Runs the document update process.
 
@@ -401,7 +422,7 @@ class Runner:
             os.path.join(
                 self.project_manager.repo_path,
                 self.setting.project.markdown_docs_name,
-                file_handler.file_path.replace(".py", ".md"),
+                str(markdown_path(file_handler.file_path)),
             ),
             markdown,
         )
@@ -460,7 +481,7 @@ class Runner:
             file_handler.write_file(
                 os.path.join(
                     self.setting.project.markdown_docs_name,
-                    file_handler.file_path.replace(".py", ".md"),
+                    str(markdown_path(file_handler.file_path)),
                 ),
                 markdown,
             )
