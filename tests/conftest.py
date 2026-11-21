@@ -10,6 +10,7 @@ from repo_agent.settings import SettingsManager
 def settings(monkeypatch, tmp_path):
     # Dummy credentials are only used to construct settings. All LLMs are mocked.
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-never-sent")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("TARGET_REPO", str(tmp_path))
     monkeypatch.setenv("SOURCE_LANGUAGE", "auto")
     monkeypatch.setenv("KOTLIN_LSP_COMMAND", "")

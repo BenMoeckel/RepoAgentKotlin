@@ -22,6 +22,10 @@ with an initial commit. Add new/changed source files to its Git index before
 running RepoAgent. Untracked sources are skipped, and analysis uses staged
 contents when a file also has unstaged edits.
 
+To use a ChatGPT subscription instead of an API key, install the official Codex
+CLI, sign in with `codex login`, and add `--llm-provider codex` to the run command.
+See the [Codex integration guide](CODEX_BACKEND.md) for setup and usage limits.
+
 `--source-language auto` is the default and accepts both backends in a mixed
 repository. `--source-language python` restricts discovery to Python and requires
 no Kotlin dependencies. `--language` controls the prose language, independently
@@ -114,6 +118,12 @@ The bundled grammar has an implicit-semicolon limitation before some same-line
 closing braces. The backend retries using whitespace at parsed brace-token
 boundaries and maps every offset back to the unchanged original source. Tests
 cover same-line nesting, Unicode, multiline signatures and exact snippets.
+
+Two additional grammar compatibility cases are handled for real projects:
+line-leading parenthesized assignment targets after a property initializer, and
+type annotations on destructured lambda parameters. The latter type is validated
+separately before masking it for syntax extraction. Original code snippets and
+source positions remain unchanged, and unrelated syntax errors still fail.
 
 Git index snapshots are tracked in `.repoagent-snapshots.json`. Cleanup restores
 unstaged files byte-for-byte, including empty files and unstaged deletions, and

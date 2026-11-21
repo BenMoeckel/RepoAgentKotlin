@@ -181,6 +181,7 @@ log.txt
 config.yml
 config.toml
 .project_doc_record
+/docs/ARBEITSPROTOKOLL.md
 
 # Gradio
 .gradio

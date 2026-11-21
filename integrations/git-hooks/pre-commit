@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+repo_root=$(git rev-parse --show-toplevel)
+# Added/changed/renamed/deleted Kotlin sources all require a documentation update.
+changed=$(git diff --cached --name-only --diff-filter=ACDMRT -- '*.kt' '*.kts')
+if [ -n "$changed" ]; then
+    echo "RepoAgent: Kotlin-Dokumentation über Codex aktualisieren ..."
+    "$repo_root/.repoagent/update-docs.sh"
+fi

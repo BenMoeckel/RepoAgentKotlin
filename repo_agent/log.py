@@ -5,7 +5,9 @@ import sys
 
 from loguru import logger
 
-logger = logger.opt(colors=True)
+# Source identifiers can contain Kotlin generics such as AdapterView<*>.
+# Do not interpret arbitrary source text in log messages as color markup.
+logger = logger.opt(colors=False)
 """
 RepoAgent 日志记录器对象。
 
@@ -19,7 +21,7 @@ RepoAgent 日志记录器对象。
     from repo_agent.log import logger
     
     # 基本消息记录
-    logger.info("It <green>works</>!") # 使用颜色
+    logger.opt(colors=True).info("It <green>works</>!") # 使用颜色
 
     # 记录异常信息
     try:

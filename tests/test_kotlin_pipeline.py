@@ -148,3 +148,39 @@ def test_shared_stems_keep_both_documents_and_ignore_excluded_sources(
     assert (docs / "App.md").exists()
     assert (docs / "App.kt.md").exists()
     assert not (docs / "excluded").exists()
+
+
+def test_anonymous_callbacks_with_generic_signatures_do_not_break_logging(
+    git_repo, settings, fake_llm
+):
+    root = settings.project.target_repo
+    commit_sources(git_repo, root, {
+        "Callbacks.kt": """fun setup() {
+ val first = object : Listener { override fun selected(view: AdapterView<*>) {} }
+ val second = object : Listener { override fun selected(view: AdapterView<*>) {} }
+}
+""",
+    })
+    runner = Runner()
+    runner.run()
+    document = (root / "markdown_docs/Callbacks.md").read_text()
+    assert document.count("Function selected(AdapterView<*>)") == 2
+    assert "waiting to be generated" not in document
+
+
+def test_resume_after_new_source_commit_refreshes_cached_code(git_repo, settings, fake_llm):
+    root = settings.project.target_repo
+    commit_sources(git_repo, root, {"App.kt": "fun original() = 1\n"})
+    runner = Runner()
+    runner.run()
+    before = len(fake_llm)
+    runner.meta_info.in_generation_process = True  # Simulate an interrupted update.
+    runner.meta_info.checkpoint(runner.absolute_project_hierarchy_path)
+    commit_sources(git_repo, root, {"App.kt": "fun original() = 2\nfun added() = 3\n"})
+    runner.run()
+    assert len(fake_llm) == before + 2
+    symbols = runner.meta_info.get_all_files()[0].children
+    assert symbols["original()"].content["code_content"] == "fun original() = 2"
+    assert "added()" in symbols
+    assert runner.meta_info.document_version == git_repo.head.commit.hexsha
+    assert not runner.meta_info.in_generation_process

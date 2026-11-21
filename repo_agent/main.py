@@ -48,9 +48,8 @@ def handle_setting_error(e: ValidationError):
 @click.option(
     "--model",
     "-m",
-    default="gpt-4o-mini",
-    show_default=True,
-    help="Specifies the model to use for completion.",
+    default=None,
+    help="Model override. Default: gpt-4o-mini for OpenAI; CLI default for Codex.",
     type=str,
 )
 @click.option(
@@ -116,10 +115,25 @@ def handle_setting_error(e: ValidationError):
     type=str,
 )
 @click.option(
+    "--llm-provider", type=click.Choice(["openai", "codex"]),
+    default="openai", envvar="LLM_PROVIDER", show_default=True,
+    help="Use the OpenAI API or Codex CLI with a ChatGPT subscription login.",
+)
+@click.option(
+    "--codex-command", default="codex", envvar="CODEX_COMMAND", show_default=True,
+    help="Codex executable name or path (no shell arguments).",
+)
+@click.option(
+    "--codex-timeout", default=180, envvar="CODEX_TIMEOUT",
+    type=click.IntRange(min=1), show_default=True,
+    help="Timeout in seconds per Codex documentation request.",
+)
+@click.option(
     "--max-thread-count",
     "-mtc",
-    default=4,
-    show_default=True,
+    default=None,
+    type=click.IntRange(min=1),
+    help="Concurrent generations. Default: 1 for Codex, 4 for OpenAI.",
 )
 @click.option(
     "--log-level",
@@ -168,6 +182,9 @@ def run(
     source_language,
     kotlin_lsp_command,
     kotlin_lsp_timeout,
+    llm_provider,
+    codex_command,
+    codex_timeout,
 ):
     """Run the program with the specified parameters."""
     try:
@@ -183,10 +200,13 @@ def run(
             temperature=temperature,
             request_timeout=request_timeout,
             openai_base_url=base_url,
-            max_thread_count=max_thread_count,
+            max_thread_count=max_thread_count or (1 if llm_provider == "codex" else 4),
             source_language=source_language,
             kotlin_lsp_command=kotlin_lsp_command,
             kotlin_lsp_timeout=kotlin_lsp_timeout,
+            llm_provider=llm_provider,
+            codex_command=codex_command,
+            codex_timeout=codex_timeout,
         )
         set_logger_level_from_config(log_level=log_level)
     except ValidationError as e:
@@ -197,6 +217,8 @@ def run(
     try:
         runner = Runner()
         runner.run()
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
     finally:
         delete_fake_files()
     logger.success("Documentation task completed.")

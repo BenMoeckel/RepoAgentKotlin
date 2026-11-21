@@ -109,6 +109,26 @@ def test_invalid_kotlin_fails_instead_of_silently_skipping_file():
         KotlinBackend().parse("fun broken( = {")
 
 
+@pytest.mark.parametrize("body", [
+    'val speed = received.speed\n(view as TextView).text =\n format("Grüße", speed)',
+    'servers.filter { (_, value): Map.Entry<Server, Date> -> value.time > 0 }',
+])
+def test_kotlin_grammar_compatibility_preserves_source_and_following_positions(body):
+    source = 'class Screen {\n fun update() {\n' + body + '\n }\n fun after() = "ä"\n}\n'
+    symbols = KotlinBackend().parse(source)
+    assert [symbol["name"] for symbol in symbols] == ["Screen", "update", "after"]
+    assert body in symbols[1]["code_content"]
+    for symbol in symbols:
+        snippet = source.encode()[symbol["code_start_byte"]:symbol["code_end_byte"]].decode()
+        assert symbol["code_content"].endswith(snippet)
+    assert source.splitlines()[symbols[-1]["name_line"] - 1][symbols[-1]["name_column"]:].startswith("after")
+
+
+def test_invalid_destructured_lambda_type_is_not_hidden():
+    with pytest.raises(ValueError, match="Kotlin syntax"):
+        KotlinBackend().parse("fun x() { values.filter { (_, v): Map< -> v } }")
+
+
 def test_vararg_overloads_and_script_lambdas():
     source = """plugins { kotlin("jvm") version "2.1.0" }
 fun parse(value: Int) = value

@@ -115,8 +115,10 @@ def need_to_generate(doc_item: DocItem, ignore_list: List[str] = []) -> bool:
     return False
 
 
-@dataclass
+@dataclass(eq=False)
 class DocItem:
+    # Graph nodes have identity semantics. Structural dataclass equality follows
+    # cyclic father/children/reference links and can recurse indefinitely.
     item_type: DocItemType = DocItemType._class_function
     item_status: DocItemStatus = DocItemStatus.doc_has_not_been_generated
 

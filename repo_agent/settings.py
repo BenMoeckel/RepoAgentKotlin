@@ -11,6 +11,7 @@ from pydantic import (
     PositiveInt,
     SecretStr,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings
 
@@ -59,11 +60,26 @@ class ProjectSettings(BaseSettings):
 
 
 class ChatCompletionSettings(BaseSettings):
-    model: str = "gpt-4o-mini"  # NOTE: No model restrictions for user flexibility, but it's recommended to use models with a larger context window.
+    llm_provider: Literal["openai", "codex"] = "openai"
+    model: Optional[str] = None
     temperature: PositiveFloat = 0.2
     request_timeout: PositiveInt = 60
     openai_base_url: str = "https://api.openai.com/v1"
-    openai_api_key: SecretStr = Field(..., exclude=True)
+    openai_api_key: Optional[SecretStr] = Field(default=None, exclude=True)
+    codex_command: str = "codex"
+    codex_timeout: PositiveInt = 180
+
+    @model_validator(mode="after")
+    def validate_provider(self):
+        if self.llm_provider == "openai":
+            if not self.openai_api_key or not self.openai_api_key.get_secret_value().strip():
+                raise ValueError(
+                    "OPENAI_API_KEY is required for --llm-provider openai. "
+                    "Use --llm-provider codex for ChatGPT subscription access."
+                )
+            if not self.model:
+                self.model = "gpt-4o-mini"
+        return self
 
     @field_validator("openai_base_url", mode="before")
     @classmethod
@@ -97,13 +113,16 @@ class SettingsManager:
         language: str,
         max_thread_count: int,
         log_level: str,
-        model: str,
+        model: Optional[str],
         temperature: float,
         request_timeout: int,
         openai_base_url: str,
         source_language: str = "auto",
         kotlin_lsp_command: str = "",
         kotlin_lsp_timeout: int = 120,
+        llm_provider: str = "openai",
+        codex_command: str = "codex",
+        codex_timeout: int = 180,
     ):
         project_settings = ProjectSettings(
             target_repo=target_repo,
@@ -119,10 +138,13 @@ class SettingsManager:
         )
 
         chat_completion_settings = ChatCompletionSettings(
+            llm_provider=llm_provider,
             model=model,
             temperature=temperature,
             request_timeout=request_timeout,
             openai_base_url=openai_base_url,
+            codex_command=codex_command,
+            codex_timeout=codex_timeout,
         )
 
         cls._setting_instance = Setting(

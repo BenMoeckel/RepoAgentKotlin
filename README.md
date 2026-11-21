@@ -13,6 +13,7 @@
 >
 > **Documentation:** [German architecture walkthrough](docs/ARCHITEKTUR_UND_ABLAUF_DE.md)
 > · [Kotlin backend setup](docs/KOTLIN_BACKEND.md).
+> · [Use your ChatGPT subscription through Codex](docs/CODEX_BACKEND.md).
 
 <p align="center">
   <img src="https://img.shields.io/pypi/dm/repoagent" alt="PyPI - Downloads"/>
@@ -116,7 +117,9 @@ If you're looking to contribute or set up a development environment:
 
 ### Configuring RepoAgent
 
-Before configuring specific parameters for RepoAgent, please ensure that the OpenAI API is configured as an environment variable in the command line:
+For the OpenAI API provider, configure the API key as an environment variable.
+When using `--llm-provider codex`, skip this API-key step and use your ChatGPT
+login instead, as described in [the Codex guide](docs/CODEX_BACKEND.md).
 
 ```sh
 export OPENAI_API_KEY=YOUR_API_KEY # on Linux/Mac
@@ -125,6 +128,21 @@ $Env:OPENAI_API_KEY = "YOUR_API_KEY" # on Windows (PowerShell)
 ```
 
 ## Run RepoAgent
+
+### Use Codex with your ChatGPT subscription
+
+This fork can generate documentation through the official Codex CLI using your
+existing ChatGPT login, without an OpenAI API key:
+
+```sh
+codex login
+repoagent run --target-repo-path /path/to/kotlin-repo \
+  --source-language kotlin --language German --llm-provider codex
+```
+
+Codex must be installed separately. This provider requires a ChatGPT login and
+never falls back to API-key billing. Your plan's Codex usage limits apply.
+See [setup, options and Zuege-von-Hanoi example](docs/CODEX_BACKEND.md).
 
 ### Python and Kotlin source backends
 
@@ -178,7 +196,29 @@ If it's your first time generating documentation for the target repository, Repo
 
 Once you have initially generated the global documentation for the target repository, or if the project you cloned already contains global documentation information, you can then seamlessly and automatically maintain internal project documentation with your team by configuring the **pre-commit hook** in the target repository! 
 
-### Use `pre-commit` 
+### Update documentation after pulling develop
+
+For local Kotlin documentation updates through your ChatGPT subscription, this
+fork provides native post-merge/post-rewrite hooks. On `documentation`, `git pull`
+integrates `origin/develop` and then updates documentation. Normal commits do not
+start generation. No additional `pre-commit` dependency is required:
+
+```sh
+python scripts/install_git_hooks.py /path/to/kotlin-repo \
+  --repoagent /absolute/path/to/RepoAgent/.venv/bin/repoagent \
+  --codex /absolute/path/to/codex
+```
+
+The installer preserves foreign hooks by refusing to overwrite them. Add
+`--migrate` to back up and disable this fork's old RepoAgent pre-commit hook.
+Successful integrations update and stage generated docs/checkpoints through
+Codex; review and commit these separately. See the
+[hook guide](integrations/git-hooks/README.md) and [Codex setup](docs/CODEX_BACKEND.md).
+
+### Alternative: upstream pre-commit integration
+
+The upstream `pre-commit` example below is a separate alternative. Use
+`--llm-provider codex` in its entry for subscription access.
 
 RepoAgent currently supports generating documentation for projects, which requires some configuration in the target repository.
 

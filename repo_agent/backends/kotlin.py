@@ -34,22 +34,54 @@ class KotlinBackend:
             # The bundled grammar misses implicit semicolons before same-line
             # closing braces. Retry with legal whitespace at token boundaries,
             # retaining an offset map so source snippets/positions stay exact.
-            braces = []
+            insertions = {}
+            compatible = bytearray(raw_source)
 
             def closing_braces(node):
                 if node.type == "}":
-                    braces.append(node.start_byte)
+                    insertions[node.start_byte] = b"\n"
+                # This grammar cannot parse a type after a destructured lambda
+                # parameter. Validate that type separately, then mask only its
+                # annotation for parsing; snippets still use the original bytes.
+                if node.type == "ERROR" and node.parent.type == "lambda_literal":
+                    binding = child(node, "multi_variable_declaration")
+                    if binding and node.next_sibling and node.next_sibling.type == "->":
+                        annotation = raw_source[binding.end_byte:node.end_byte].strip()
+                        if annotation.startswith(b":") and not self.parser.parse(
+                            b"val __parameter" + annotation + b" = TODO()\n"
+                        ).root_node.has_error:
+                            for offset in range(binding.end_byte, node.end_byte):
+                                if compatible[offset] not in (10, 13):
+                                    compatible[offset] = 32
+                # A line-leading parenthesis after a val initializer can be
+                # misread as a continued function call, swallowing the next
+                # assignment's left side. Insert an explicit statement boundary
+                # only when that parse produced an erroneous '=' token.
+                if node.type == "ERROR" and node.text == b"=":
+                    previous = node.prev_named_sibling
+                    if previous and previous.type == "property_declaration":
+                        def statement_boundary(nested):
+                            if nested.type == "call_suffix":
+                                arguments = child(nested, "value_arguments")
+                                if arguments:
+                                    start = arguments.start_byte
+                                    line_start = raw_source.rfind(b"\n", 0, start) + 1
+                                    if line_start and not raw_source[line_start:start].strip():
+                                        insertions[start] = b";"
+                            for descendant in nested.children:
+                                statement_boundary(descendant)
+                        statement_boundary(previous)
                 for nested in node.children:
                     closing_braces(nested)
 
             closing_braces(root)
             normalized, cursor = bytearray(), 0
-            for position in sorted(set(braces)):
-                normalized.extend(raw_source[cursor:position])
+            for position, addition in sorted(insertions.items()):
+                normalized.extend(compatible[cursor:position])
                 inserted.append(len(normalized))
-                normalized.extend(b"\n")
+                normalized.extend(addition)
                 cursor = position
-            normalized.extend(raw_source[cursor:])
+            normalized.extend(compatible[cursor:])
             root = self.parser.parse(bytes(normalized)).root_node
         if root.has_error:
             raise ValueError(

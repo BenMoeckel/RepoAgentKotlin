@@ -60,6 +60,8 @@ class Runner:
             target_dir_path=self.absolute_project_hierarchy_path
         )
         self.runner_lock = threading.Lock()
+        self.generation_failures = []
+        self.abort_generation = threading.Event()
 
     def get_all_pys(self, directory):
         """
@@ -82,6 +84,8 @@ class Runner:
 
     def generate_doc_for_a_single_item(self, doc_item: DocItem):
         """为一个对象生成文档"""
+        if self.abort_generation.is_set():
+            return
         try:
             if not need_to_generate(doc_item, self.setting.project.ignore_list):
                 print(
@@ -101,9 +105,15 @@ class Runner:
                 )
         except Exception:
             logger.exception(
-                f"Document generation failed after multiple attempts, skipping: {doc_item.get_full_name()}"
+                f"Document generation failed: {doc_item.get_full_name()}"
             )
             doc_item.item_status = DocItemStatus.doc_has_not_been_generated
+            with self.runner_lock:
+                self.generation_failures.append(doc_item.get_full_name())
+            if self.setting.chat_completion.llm_provider == "codex":
+                # Avoid launching hundreds of further requests after auth/limit
+                # or network failures. Pending symbols remain retryable.
+                self.abort_generation.set()
 
     def first_generate(self):
         """
@@ -153,13 +163,14 @@ class Runner:
                 target_dir_path=self.absolute_project_hierarchy_path
             )
             logger.info(
-                f"Successfully generated {before_task_len - len(task_manager.task_dict)} documents."
+                f"Documentation processing finished; {len(self.generation_failures)} failed."
             )
 
         except BaseException as e:
             logger.error(
                 f"An error occurred: {e}. {before_task_len - len(task_manager.task_dict)} docs are generated at this time"
             )
+            raise
 
     def markdown_refresh(self):
         """刷新最新的文档信息到markdown格式文件夹中"""
@@ -272,8 +283,20 @@ class Runner:
 
     def run(self):
         """Run generation and always restore unstaged working-tree contents."""
+        self.generation_failures = []
+        self.abort_generation.clear()
         try:
             self._run()
+            if self.generation_failures:
+                self.meta_info.in_generation_process = True
+                self.meta_info.checkpoint(
+                    target_dir_path=self.absolute_project_hierarchy_path
+                )
+                raise RuntimeError(
+                    f"Documentation incomplete: {len(self.generation_failures)} "
+                    "symbol(s) failed. Check the provider errors above and rerun "
+                    "the same command to retry."
+                )
         finally:
             delete_fake_files()
 
@@ -298,6 +321,7 @@ class Runner:
 
         if (
             not self.meta_info.in_generation_process
+            or self.meta_info.document_version != self.change_detector.repo.head.commit.hexsha
         ):  # 如果不是在生成过程中，就开始检测变更
             logger.info("Starting to detect changes.")
 

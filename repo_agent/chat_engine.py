@@ -1,5 +1,6 @@
 from llama_index.llms.openai_like import OpenAILike
 
+from repo_agent.codex_provider import CodexProvider
 from repo_agent.doc_meta_info import DocItem
 from repo_agent.log import logger
 from repo_agent.prompt import chat_template
@@ -14,6 +15,15 @@ class ChatEngine:
     def __init__(self, project_manager):
         self.project_manager = project_manager
         setting = SettingsManager.get_setting()
+
+        self.codex = None
+        if setting.chat_completion.llm_provider == "codex":
+            self.codex = CodexProvider(
+                command=setting.chat_completion.codex_command,
+                model=setting.chat_completion.model,
+                timeout=setting.chat_completion.codex_timeout,
+            )
+            return
 
         self.llm = OpenAILike(
             api_key=setting.chat_completion.openai_api_key.get_secret_value(),
@@ -127,6 +137,8 @@ class ChatEngine:
         messages = self.build_prompt(doc_item)
 
         try:
+            if self.codex is not None:
+                return self.codex.generate(messages)
             response = self.llm.chat(messages)
             logger.debug(f"LLM Prompt Tokens: {response.raw.usage.prompt_tokens}")  # type: ignore
             logger.debug(
@@ -137,5 +149,5 @@ class ChatEngine:
             )
             return response.message.content
         except Exception as e:
-            logger.error(f"Error in llamaindex chat call: {e}")
+            logger.error(f"Documentation provider failed: {e}")
             raise
